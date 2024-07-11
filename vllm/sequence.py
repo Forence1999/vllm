@@ -384,7 +384,7 @@ class Sequence:
     ) -> float:
 
         output_token_logprobs = self.data.output_token_logprobs
-        print(len(output_token_logprobs), end="-")
+        # print(len(output_token_logprobs), end="-")
         mode = forence_params["mode"]
         if mode == "back":
             back_length = forence_params["back_length"]
