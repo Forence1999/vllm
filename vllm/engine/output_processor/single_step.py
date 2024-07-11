@@ -2,13 +2,17 @@ from typing import Dict, List, Tuple, Union
 
 from vllm.config import SchedulerConfig
 from vllm.core.scheduler import Scheduler
-from vllm.engine.output_processor.interfaces import (
-    SequenceGroupOutputProcessor)
+from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
 from vllm.engine.output_processor.stop_checker import StopChecker
 from vllm.logger import init_logger
 from vllm.sampling_params import SamplingParams
-from vllm.sequence import (Sequence, SequenceGroup, SequenceGroupOutput,
-                           SequenceOutput, SequenceStatus)
+from vllm.sequence import (
+    Sequence,
+    SequenceGroup,
+    SequenceGroupOutput,
+    SequenceOutput,
+    SequenceStatus,
+)
 from vllm.transformers_utils.detokenizer import Detokenizer
 from vllm.utils import Counter
 
@@ -43,42 +47,46 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         self.seq_counter = seq_counter
         self.stop_checker = stop_checker
 
-    def process_outputs(self, sequence_group: SequenceGroup,
-                        outputs: List[SequenceGroupOutput]) -> None:
+    def process_outputs(
+        self, sequence_group: SequenceGroup, outputs: List[SequenceGroupOutput]
+    ) -> None:
         """Append all new tokens to sequences in the sequence group. Fork any
         surviving beam candidates; free any unsurviving ones.
 
         Invokes detokenizer to detokenize new tokens, and also marks sequences
         as finished if they meet stop conditions.
         """
-        assert (len(outputs) == 1
-                ), f"{type(self)} does not support multiple outputs per step"
+        assert (
+            len(outputs) == 1
+        ), f"{type(self)} does not support multiple outputs per step"
         return self._process_sequence_group_outputs(sequence_group, outputs[0])
 
-    def process_prompt_logprob(self, seq_group: SequenceGroup,
-                               outputs: List[SequenceGroupOutput]) -> None:
-        assert len(outputs) == 1, ("Single step should only has 1 output.")
+    def process_prompt_logprob(
+        self, seq_group: SequenceGroup, outputs: List[SequenceGroupOutput]
+    ) -> None:
+        assert len(outputs) == 1, "Single step should only has 1 output."
         output = outputs[0]
         prompt_logprobs = output.prompt_logprobs
         if prompt_logprobs is not None:
             if seq_group.sampling_params.detokenize and self.detokenizer:
                 self.detokenizer.decode_prompt_logprobs_inplace(
-                    seq_group, prompt_logprobs)
+                    seq_group, prompt_logprobs
+                )
             if not seq_group.prompt_logprobs:
                 # The first prompt token's logprob is None because it doesn't
                 # have tokens that are precedent.
                 seq_group.prompt_logprobs = [None]
             seq_group.prompt_logprobs.extend(prompt_logprobs)
 
-    def _process_sequence_group_outputs(self, seq_group: SequenceGroup,
-                                        outputs: SequenceGroupOutput) -> None:
+    def _process_sequence_group_outputs(
+        self, seq_group: SequenceGroup, outputs: SequenceGroupOutput
+    ) -> None:
         # Process samples
         samples = outputs.samples
         parent_seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)
         existing_finished_seqs = seq_group.get_finished_seqs()
         parent_child_dict: Dict[int, List[SequenceOutput]] = {
-            parent_seq.seq_id: []
-            for parent_seq in parent_seqs
+            parent_seq.seq_id: [] for parent_seq in parent_seqs
         }
         for sample in samples:
             parent_child_dict[sample.parent_seq_id].append(sample)
@@ -87,8 +95,7 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
 
         # Process the child samples for each parent sequence
         for parent in parent_seqs:
-            child_samples: List[SequenceOutput] = parent_child_dict[
-                parent.seq_id]
+            child_samples: List[SequenceOutput] = parent_child_dict[parent.seq_id]
             if len(child_samples) == 0:
                 # This parent sequence has no children samples. Remove
                 # the parent sequence from the sequence group since it will
@@ -101,21 +108,22 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
             for child_sample in child_samples[:-1]:
                 new_child_seq_id: int = next(self.seq_counter)
                 child = parent.fork(new_child_seq_id)
-                child.append_token_id(child_sample.output_token,
-                                      child_sample.logprobs)
+                child.append_token_id(child_sample.output_token, child_sample.logprobs)
                 child_seqs.append((child, parent))
             # Continue the parent sequence for the last child sample.
             # We reuse the parent sequence here to reduce redundant memory
             # copies, especially when using non-beam search sampling methods.
             last_child_sample = child_samples[-1]
-            parent.append_token_id(last_child_sample.output_token,
-                                   last_child_sample.logprobs)
+            parent.append_token_id(
+                last_child_sample.output_token, last_child_sample.logprobs
+            )
             child_seqs.append((parent, parent))
 
         for seq, _ in child_seqs:
             if seq_group.sampling_params.detokenize and self.detokenizer:
                 new_char_count = self.detokenizer.decode_sequence_inplace(
-                    seq, seq_group.sampling_params)
+                    seq, seq_group.sampling_params
+                )
             else:
                 new_char_count = 0
             self.stop_checker.maybe_stop_sequence(
@@ -154,15 +162,18 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         # Select the newly finished sequences with the highest scores
         # to replace existing finished sequences.
         # Tuple of (seq, parent, is_new)
-        existing_finished_seqs = [(seq, None, False)
-                                  for seq in existing_finished_seqs]
-        new_finished_seqs = [(seq, parent, True) for seq, parent in child_seqs
-                             if seq.is_finished()]
+        existing_finished_seqs = [(seq, None, False) for seq in existing_finished_seqs]
+        new_finished_seqs = [
+            (seq, parent, True) for seq, parent in child_seqs if seq.is_finished()
+        ]
         all_finished_seqs = existing_finished_seqs + new_finished_seqs
         # Sort the finished sequences by their scores.
-        all_finished_seqs.sort(key=lambda x: x[0].get_beam_search_score(
-            length_penalty=length_penalty, eos_token_id=x[0].eos_token_id),
-                               reverse=True)
+        all_finished_seqs.sort(
+            key=lambda x: x[0].get_beam_search_score(
+                length_penalty=length_penalty, eos_token_id=x[0].eos_token_id
+            ),
+            reverse=True,
+        )
         for seq, parent, is_new in all_finished_seqs[:beam_width]:
             if is_new:
                 # A newly generated child sequence finishes and has a high
@@ -184,12 +195,16 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         # select the top beam_width sequences from the running
         # sequences for the next iteration to continue the beam
         # search.
-        running_child_seqs = [(seq, parent) for seq, parent in child_seqs
-                              if not seq.is_finished()]
+        running_child_seqs = [
+            (seq, parent) for seq, parent in child_seqs if not seq.is_finished()
+        ]
         # Sort the running sequences by their scores.
-        running_child_seqs.sort(key=lambda x: x[0].get_beam_search_score(
-            length_penalty=length_penalty, eos_token_id=x[0].eos_token_id),
-                                reverse=True)
+        running_child_seqs.sort(
+            key=lambda x: x[0].get_beam_search_score(
+                length_penalty=length_penalty, eos_token_id=x[0].eos_token_id
+            ),
+            reverse=True,
+        )
 
         # Check if we can stop the beam search.
         if len(running_child_seqs) == 0:
@@ -204,7 +219,10 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
             current_worst_seq = all_finished_seqs[beam_width - 1][0]
             stop_beam_search = self._check_beam_search_early_stopping(
                 seq_group.sampling_params.early_stopping,
-                seq_group.sampling_params, best_running_seq, current_worst_seq)
+                seq_group.sampling_params,
+                best_running_seq,
+                current_worst_seq,
+            )
 
         if stop_beam_search:
             # Stop the beam search and remove all the running sequences from
@@ -256,12 +274,13 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
             return True
 
         current_worst_score = current_worst_seq.get_beam_search_score(
-            length_penalty=length_penalty,
-            eos_token_id=current_worst_seq.eos_token_id)
+            length_penalty=length_penalty, eos_token_id=current_worst_seq.eos_token_id
+        )
         if early_stopping is False:
             highest_attainable_score = best_running_seq.get_beam_search_score(
                 length_penalty=length_penalty,
-                eos_token_id=best_running_seq.eos_token_id)
+                eos_token_id=best_running_seq.eos_token_id,
+            )
         else:
             assert early_stopping == "never"
             if length_penalty > 0.0:
@@ -269,20 +288,20 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
                 # sequences. The highest attainable score calculation is
                 # based on the longest possible sequence length in this case.
                 max_possible_length = max(
-                    best_running_seq.get_prompt_len() +
-                    sampling_params.max_tokens,
-                    self.scheduler_config.max_model_len)
-                highest_attainable_score = (
-                    best_running_seq.get_beam_search_score(
-                        length_penalty=length_penalty,
-                        eos_token_id=best_running_seq.eos_token_id,
-                        seq_len=max_possible_length))
+                    best_running_seq.get_prompt_len() + sampling_params.max_tokens,
+                    self.scheduler_config.max_model_len,
+                )
+                highest_attainable_score = best_running_seq.get_beam_search_score(
+                    length_penalty=length_penalty,
+                    eos_token_id=best_running_seq.eos_token_id,
+                    seq_len=max_possible_length,
+                )
             else:
                 # Otherwise, beam search will prefer shorter sequences. The
                 # highest attainable score calculation is based on the current
                 # sequence length.
-                highest_attainable_score = (
-                    best_running_seq.get_beam_search_score(
-                        length_penalty=length_penalty,
-                        eos_token_id=best_running_seq.eos_token_id))
+                highest_attainable_score = best_running_seq.get_beam_search_score(
+                    length_penalty=length_penalty,
+                    eos_token_id=best_running_seq.eos_token_id,
+                )
         return current_worst_score >= highest_attainable_score
