@@ -133,10 +133,13 @@ class SequenceData:
         # The number of tokens that are computed (that run against the model).
         self._num_computed_tokens = 0
         self._stage: SequenceStage = SequenceStage.PREFILL
+        self.prompt_token_logprobs = []  # FORENCE
+        self.output_token_logprobs = []  # FORENCE
 
     def append_token_id(self, token_id: int, logprob: float) -> None:
         self.output_token_ids.append(token_id)
         self.cumulative_logprob += logprob
+        self.output_token_logprobs.append(logprob)  # FORENCE
 
     def get_len(self) -> int:
         return len(self.output_token_ids) + len(self.prompt_token_ids)
@@ -371,6 +374,38 @@ class Sequence:
             if eos_token_id is not None and self.get_last_token_id() == eos_token_id:
                 seq_len -= 1
         return self.get_cumulative_logprob() / (seq_len**length_penalty)
+
+    def get_beam_search_score_forence(  # FORENCE
+        self,
+        length_penalty: float = 1.0,
+        seq_len: Optional[int] = None,
+        eos_token_id: Optional[int] = None,
+        forence_params=None,
+    ) -> float:
+
+        output_token_logprobs = self.data.output_token_logprobs
+        print(len(output_token_logprobs), end="-")
+        mode = forence_params["mode"]
+        if mode == "back":
+            back_length = forence_params["back_length"]
+            probs = output_token_logprobs[-back_length:]
+            score = sum(probs) / len(probs)
+        elif mode == "discount":
+            from functools import reduce
+
+            alpha = forence_params["discount_factor"]
+            score = reduce(
+                lambda ema, x: alpha * x + (1 - alpha) * ema, output_token_logprobs
+            )
+        elif mode == "percent":
+            import numpy as np
+
+            min_percent = forence_params["min_percent"]
+            score = np.quantile(a=output_token_logprobs, q=min_percent, method="lower")
+        else:
+            raise ValueError(f"Unknown forence mode: {mode}")
+
+        return score
 
     def is_finished(self) -> bool:
         return SequenceStatus.is_finished(self.status)

@@ -198,13 +198,27 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         running_child_seqs = [
             (seq, parent) for seq, parent in child_seqs if not seq.is_finished()
         ]
-        # Sort the running sequences by their scores.
-        running_child_seqs.sort(
-            key=lambda x: x[0].get_beam_search_score(
+        # Sort the running sequences by their scores. # FORENCE
+        # running_child_seqs.sort(
+        #     key=lambda x: x[0].get_beam_search_score(
+        #         length_penalty=length_penalty, eos_token_id=x[0].eos_token_id
+        #     ),
+        #     reverse=True,
+        # )
+        forence_params = getattr(seq_group.sampling_params, "forence_params", None)
+        if (forence_params is not None) and (
+            forence_params["mode"].lower() not in ["none", ""]
+        ):
+            sortfunc_forence = lambda x: x[0].get_beam_search_score_forence(
+                length_penalty=length_penalty,
+                eos_token_id=x[0].eos_token_id,
+                forence_params=forence_params,
+            )
+        else:
+            sortfunc_forence = lambda x: x[0].get_beam_search_score(
                 length_penalty=length_penalty, eos_token_id=x[0].eos_token_id
-            ),
-            reverse=True,
-        )
+            )
+        running_child_seqs.sort(key=sortfunc_forence, reverse=True)
 
         # Check if we can stop the beam search.
         if len(running_child_seqs) == 0:

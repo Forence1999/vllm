@@ -136,7 +136,9 @@ class SamplingParams:
         spaces_between_special_tokens: bool = True,
         logits_processors: Optional[List[LogitsProcessor]] = None,
         truncate_prompt_tokens: Optional[Annotated[int, Field(ge=1)]] = None,
+        forence_params: Optional[Dict[str, Any]] = None,  # FORENCE
     ) -> None:
+        self.forence_params = forence_params  # FORENCE
         self.n = n
         self.best_of = best_of if best_of is not None else n
         self.presence_penalty = presence_penalty
