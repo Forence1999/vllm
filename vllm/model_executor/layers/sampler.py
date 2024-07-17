@@ -409,28 +409,66 @@ def _beam_search_sample(
         num_parent_seqs = len(seq_ids)
         beam_width = sampling_params.best_of
         seq_group_logprobs = logprobs[sample_idx : sample_idx + num_parent_seqs]
-        if is_prompt:
-            # Prompt phase.
-            assert num_parent_seqs == 1, "Prompt input should have only one seq."
-            parent_ids = [0] * (2 * beam_width)
-            _, next_token_ids = torch.topk(seq_group_logprobs[0], 2 * beam_width)
-            next_token_ids = next_token_ids.tolist()
+
+        # FORENCE
+        if hasattr(
+            sampling_params, "forence_params"
+        ) and sampling_params.forence_params.get("num_candi_per_seq", None):
+            num_candi_per_seq = int(sampling_params.forence_params["num_candi_per_seq"])
         else:
-            # Generation phase.
-            cumulative_logprobs: List[int] = [
-                seq_group.seq_data[seq_id].cumulative_logprob for seq_id in seq_ids
-            ]
-            cumulative_logprobs_tensor = torch.tensor(
-                cumulative_logprobs, dtype=torch.float, device=seq_group_logprobs.device
-            )
-            seq_group_logprobs = (
-                seq_group_logprobs + cumulative_logprobs_tensor.unsqueeze(dim=1)
-            )
-            _, topk_ids = torch.topk(seq_group_logprobs.flatten(), 2 * beam_width)
-            topk_ids = topk_ids.tolist()
-            vocab_size = seq_group_logprobs.size(-1)
-            parent_ids = [i // vocab_size for i in topk_ids]
-            next_token_ids = [i % vocab_size for i in topk_ids]
+            num_candi_per_seq = None
+        if num_candi_per_seq is None:  # the original version
+            if is_prompt:
+                # Prompt phase.
+                assert num_parent_seqs == 1, "Prompt input should have only one seq."
+                parent_ids = [0] * (2 * beam_width)
+                _, next_token_ids = torch.topk(seq_group_logprobs[0], 2 * beam_width)
+                next_token_ids = next_token_ids.tolist()
+            else:
+                # Generation phase.
+                cumulative_logprobs: List[int] = [
+                    seq_group.seq_data[seq_id].cumulative_logprob for seq_id in seq_ids
+                ]
+                cumulative_logprobs_tensor = torch.tensor(
+                    cumulative_logprobs,
+                    dtype=torch.float,
+                    device=seq_group_logprobs.device,
+                )
+                seq_group_logprobs = (
+                    seq_group_logprobs + cumulative_logprobs_tensor.unsqueeze(dim=1)
+                )
+                _, topk_ids = torch.topk(seq_group_logprobs.flatten(), 2 * beam_width)
+                topk_ids = topk_ids.tolist()
+                vocab_size = seq_group_logprobs.size(-1)
+                parent_ids = [i // vocab_size for i in topk_ids]
+                next_token_ids = [i % vocab_size for i in topk_ids]
+        else:
+            if is_prompt:
+                # Prompt phase.
+                assert num_parent_seqs == 1, "Prompt input should have only one seq."
+                parent_ids = [0] * beam_width
+                _, next_token_ids = torch.topk(seq_group_logprobs[0], beam_width)
+                next_token_ids = next_token_ids.tolist()
+            else:
+                # Generation phase.
+                # cumulative_logprobs: List[int] = [
+                #     seq_group.seq_data[seq_id].cumulative_logprob for seq_id in seq_ids
+                # ]
+                # cumulative_logprobs_tensor = torch.tensor(
+                #     cumulative_logprobs,
+                #     dtype=torch.float,
+                #     device=seq_group_logprobs.device,
+                # )
+                # seq_group_logprobs = (
+                #     seq_group_logprobs + cumulative_logprobs_tensor.unsqueeze(dim=1)
+                # )
+                _, topk_ids = torch.topk(seq_group_logprobs, num_candi_per_seq, dim=-1)
+                next_token_ids = topk_ids.flatten().tolist()
+                parent_ids = [
+                    i
+                    for i in range(seq_group_logprobs.size(0))
+                    for _ in range(num_candi_per_seq)
+                ]
         results.append((next_token_ids, parent_ids))
         sample_idx += num_parent_seqs
     assert sample_idx == logprobs.size(0)
