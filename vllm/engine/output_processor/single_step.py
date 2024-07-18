@@ -83,9 +83,11 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         self, seq_group: SequenceGroup, outputs: SequenceGroupOutput
     ) -> None:
         # FORENCE
-        if hasattr(
-            seq_group.sampling_params, "forence_params"
-        ) and seq_group.sampling_params.forence_params.get("num_candi_per_seq", None):
+        if (
+            hasattr(seq_group.sampling_params, "forence_params")
+            and isinstance(seq_group.sampling_params.forence_params, dict)
+            and seq_group.sampling_params.forence_params.get("num_candi_per_seq", None)
+        ):
             return self._process_sequence_group_outputs_forence(seq_group, outputs)
 
         # Process samples

@@ -411,9 +411,11 @@ def _beam_search_sample(
         seq_group_logprobs = logprobs[sample_idx : sample_idx + num_parent_seqs]
 
         # FORENCE
-        if hasattr(
-            sampling_params, "forence_params"
-        ) and sampling_params.forence_params.get("num_candi_per_seq", None):
+        if (
+            hasattr(sampling_params, "forence_params")
+            and isinstance(sampling_params.forence_params, dict)
+            and sampling_params.forence_params.get("num_candi_per_seq", None)
+        ):
             num_candi_per_seq = int(sampling_params.forence_params["num_candi_per_seq"])
         else:
             num_candi_per_seq = None
