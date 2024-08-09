@@ -1,3 +1,5 @@
+# 08-04
+
 from typing import Dict, List, Tuple, Union
 import random
 import math
@@ -348,6 +350,25 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
             parent.logprob_forence = last_child_sample.logprobs[
                 last_child_sample.output_token
             ].logprob
+        forence_params = getattr(seq_group.sampling_params, "forence_params", None)
+        rachel_params = getattr(seq_group.sampling_params, "rachel_params", None)
+        length_penalty = seq_group.sampling_params.length_penalty
+        
+        # RACHEL: compute scores_forence for every new token (every new child_seq)
+        scores_forence = []
+        if (forence_params is not None) and (
+            forence_params["mode"].lower() not in ["none", ""]
+        ):
+            sortfunc_forence = lambda x: x.get_beam_search_score_forence(
+                length_penalty=length_penalty,
+                eos_token_id=x.eos_token_id,
+                forence_params=forence_params,
+            )
+        else:
+            sortfunc_forence = lambda x: x.get_beam_search_score(
+                length_penalty=length_penalty, eos_token_id=x.eos_token_id
+            )
+        
 
         for seq, _ in child_seqs:
             if seq_group.sampling_params.detokenize and self.detokenizer:
@@ -362,7 +383,9 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
                 seq_group.sampling_params,
                 lora_req=seq_group.lora_request,
             )
-
+            score_new_token = sortfunc_forence(seq) 
+            scores_forence.append(score_new_token)     
+        #print("\n scores_forence: ", scores_forence)                     
         # Beam search case
         # Select the child sequences to keep in the sequence group.
         selected_child_seqs = []
@@ -373,16 +396,16 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
 
         is_prompt = (
             len(existing_finished_seqs) == 0  # no finished seqs
-            and len(parent_seqs) == 1  # only one parent seq
-            and len(child_seqs) == beam_width  # only beam_width seqs at the first step
+            and len(parent_seqs) == 1  # only one parent seq, (the prompt)
+            and len(child_seqs) == beam_width  # only beam_width seqs at the first step (implemented in /vllm/model_executor/layer/sampler.py)
             and all(
-                [len(seq.data.output_token_logprobs) == 1 for seq, parent in child_seqs]
+                [len(seq.data.output_token_logprobs) == 1 for seq, _ in child_seqs]
             )  # all child seqs only have 1 token
         )
         if is_prompt:
             # only has top1 seqs
             top1_finished_indices = set(
-                i for i, (seq, parent) in enumerate(child_seqs) if seq.is_finished()
+                i for i, (child, _ ) in enumerate(child_seqs) if child.is_finished()
             )
             top1_running_indices = all_indices - top1_finished_indices
         else:
@@ -396,24 +419,46 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
             # search.
             top1_indices = set()
             top1_parent_ids = set()
+            #top1_eliminated_indices = set()
+
             for i, (seq, parent) in enumerate(child_seqs):
                 if seq.rank_forence == 1 and (parent.seq_id not in top1_parent_ids):
+                    #if scores_forence[i] < rachel_params['threshold'] and len(seq.data.output_token_ids) >= rachel_params['ignore']:
+                    #    top1_eliminated_indices.add(i)
+                    #else:
                     top1_indices.add(i)
                     top1_parent_ids.add(parent.seq_id)
+            #if len(top1_indices) <= rachel_params['num_keep']:
+            #    pass
+            #else:
+            #    # TODO: add critiaria to dertermine if top-1 should be eliminated
+            #    for i, (seq, parent) in enumerate(child_seqs):
+            #        if seq.rank_forence == 1 and (parent.seq_id not in top1_parent_ids) \
+            #            and scores_forence[i] < rachel_params['threshold'] and len(seq.data.output_token_ids) >= rachel_params['ignore']:
+            #                print('\n', seq.seq_id,scores_forence[i], seq.output_text,'\n')
+            #                top1_eliminated_indices.add(i)
+
             top1_running_indices = set(
                 i for i in top1_indices if not child_seqs[i][0].is_finished()
             )
             top1_finished_indices = top1_indices - top1_running_indices
-            top1_eliminated_indices = set()
+            #print("top1_indices: ", top1_indices)
+            #print("top1_chi/par_ids: ", [(child_seqs[i][0].seq_id, child_seqs[i][1].seq_id) for i in top1_indices])
+            #print("top1_eliminated_indices: ", top1_eliminated_indices)
 
             if len(top1_running_indices) < beam_width:
                 # FORENCE: not enough running sequences, try to sample more to augment
-
                 sampling_probs = [
-                    math.exp(seq.logprob_forence) for seq, _ in child_seqs
+                    math.exp(seq.logprob_forence) for seq, _ in child_seqs      # exp(logprob) -> prob
                 ]
                 sampling_indices = list(range(len(child_seqs)))
-                # FORENCE TODO: May need to eliminated the top1_eliminated_indices
+                # TODO: eliminate the parents whose top-1 is eliminated.
+                #for i in top1_eliminated_indices:
+                for i in range(len(child_seqs)):
+                    if scores_forence[i] < rachel_params['threshold'] and len(child_seqs[i][0].data.output_token_ids) >= rachel_params['ignore']:
+                        print("\n Throw: ", child_seqs[i][0].seq_id, '\n')
+                        sampling_probs[i] = sampling_probs[i] / 100
+                #print("sampling_probs: ", sampling_probs)
                 sampling_num = beam_width - len(top1_running_indices)
                 sampled_indices = random.choices(
                     sampling_indices, weights=sampling_probs, k=sampling_num
@@ -421,14 +466,7 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
                 sampled_running_indices = {
                     i for i in sampled_indices if not child_seqs[i][0].is_finished()
                 }
-                # sampled_finished_indices = sampled_indices - sampled_running_indices
-                # sampled_eliminated_indices = set()
-
                 top1_running_indices.update(sampled_running_indices - top1_indices)
-                # top1_finished_indices.update(sampled_finished_indices - top1_indices) # FORENCE TODO: may need to cancel?
-                # top1_eliminated_indices.update(
-                #     sampled_eliminated_indices - top1_indices
-                # )
 
         # Add all the sequences (except the finished and running ones) to the unselected list
         other_indices = all_indices - top1_running_indices - top1_finished_indices
@@ -473,11 +511,31 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
         # Process the running sequences
         running_child_seqs = [child_seqs[i] for i in top1_running_indices]
         # Sort the running sequences by their scores. # FORENCE
-        running_child_seqs.sort(
-            key=lambda x: x[0].get_beam_search_score(
+        #running_child_seqs.sort(
+        #    key=lambda x: x[0].get_beam_search_score(
+        #        length_penalty=length_penalty, eos_token_id=x[0].eos_token_id
+        #    ),
+        #    reverse=True,
+        #)
+        #print("running_child_seqs: ", len(running_child_seqs), [i[0].seq_id for i in running_child_seqs])
+        '''
+        用logprobs进行排序，还是用get_beam_search_score_forence ？
+        '''
+        forence_params = getattr(seq_group.sampling_params, "forence_params", None)
+        if (forence_params is not None) and (
+            forence_params["mode"].lower() not in ["none", ""]
+        ):
+            sortfunc_forence = lambda x: x[0].get_beam_search_score_forence(
+                length_penalty=length_penalty,
+                eos_token_id=x[0].eos_token_id,
+                forence_params=forence_params,
+            )
+        else:
+            sortfunc_forence = lambda x: x[0].get_beam_search_score(
                 length_penalty=length_penalty, eos_token_id=x[0].eos_token_id
-            ),
-            reverse=True,
+            )
+        running_child_seqs.sort(
+            key=sortfunc_forence, reverse=True
         )  # FORENCE FIXME: bug for local beam search
 
         ## ---- the following remains the same ----

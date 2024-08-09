@@ -137,8 +137,10 @@ class SamplingParams:
         logits_processors: Optional[List[LogitsProcessor]] = None,
         truncate_prompt_tokens: Optional[Annotated[int, Field(ge=1)]] = None,
         forence_params: Optional[Dict[str, Any]] = None,  # FORENCE
+        rachel_params: Optional[Dict[str, Any]] = None,  # RACHEL
     ) -> None:
         self.forence_params = forence_params  # FORENCE
+        self.rachel_params = rachel_params    # RACHEL
         self.n = n
         self.best_of = best_of if best_of is not None else n
         self.presence_penalty = presence_penalty
