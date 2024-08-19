@@ -387,21 +387,33 @@ class Sequence:
         # print(len(output_token_logprobs), end="-")
         mode = forence_params["mode"]
         if mode == "back":
+            import numpy as np
             back_length = forence_params["back_length"]
             probs = output_token_logprobs[-back_length:]
             score = sum(probs) / len(probs)
+            score = np.exp(score)
+
         elif mode == "discount":
             from functools import reduce
-
+            import numpy as np
             alpha = forence_params["discount_factor"]
+
+            #score = reduce(
+            #    lambda ema, x: (1-alpha)*ema + alpha*x, output_token_logprobs   # ema 累计值， x 新值
+            #) / (1 - pow(1 - alpha, len(output_token_logprobs)))
+
+            # 08-18, alpha <-> 1 - alpha
             score = reduce(
-                lambda ema, x: alpha * x + (1 - alpha) * ema, output_token_logprobs
-            )
+                lambda ema, x: alpha*ema + (1-alpha)*x, output_token_logprobs
+            ) / (1 - pow(alpha, len(output_token_logprobs)))
+            
+            score = np.exp(score)
+
         elif mode == "percent":
             import numpy as np
-
             min_percent = forence_params["min_percent"]
             score = np.quantile(a=output_token_logprobs, q=min_percent, method="lower")
+            score = np.exp(score)
         else:
             raise ValueError(f"Unknown forence mode: {mode}")
 
@@ -494,7 +506,10 @@ class SequenceGroup:
     def prompt(self) -> Optional[str]:
         # All sequences in the group should have the same prompt.
         # We use the prompt of an arbitrary sequence.
-        return next(iter(self.seqs_dict.values())).prompt
+        if self.seqs_dict:
+            return next(iter(self.seqs_dict.values())).prompt
+        else:
+            raise ValueError("seqs_dict is empty, cannot retrieve prompt")
 
     @property
     def prompt_token_ids(self) -> List[int]:
@@ -593,6 +608,8 @@ class SequenceGroup:
         for seq in self.seqs_dict.values():
             if not seq.is_finished():
                 seq.data.update_num_computed_tokens(num_new_computed_tokens)
+            #else:
+            #    print("not updata")
 
     def get_num_uncomputed_tokens(self) -> int:
         num_uncomputed_tokens = 0
