@@ -137,8 +137,10 @@ class SamplingParams:
         logits_processors: Optional[List[LogitsProcessor]] = None,
         truncate_prompt_tokens: Optional[Annotated[int, Field(ge=1)]] = None,
         forence_params: Optional[Dict[str, Any]] = None,  # FORENCE
+        rachel_params: Optional[Dict[str, Any]] = None,  # RACHEL
     ) -> None:
         self.forence_params = forence_params  # FORENCE
+        self.rachel_params = rachel_params  # RACHEL
         self.n = n
         self.best_of = best_of if best_of is not None else n
         self.presence_penalty = presence_penalty
@@ -271,7 +273,9 @@ class SamplingParams:
                 "best_of must be greater than 1 when using beam "
                 f"search. Got {self.best_of}."
             )
+            # print("best_of must be greater than 1 when using beam")
         if self.temperature > _SAMPLING_EPS:
+            # print("temperature must be 0 when using beam search.")
             raise ValueError("temperature must be 0 when using beam search.")
         if self.top_p < 1.0 - _SAMPLING_EPS:
             raise ValueError("top_p must be 1 when using beam search.")

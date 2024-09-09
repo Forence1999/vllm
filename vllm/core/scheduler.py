@@ -2,6 +2,7 @@ import enum
 import os
 import random
 import time
+import pandas as pd
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, Iterable, List, Optional, Set, Tuple, Union
@@ -989,6 +990,8 @@ class Scheduler:
             # prefill < decoding.
             is_prompt = seq_group.is_prefill()
             seq_group_metadata = SequenceGroupMetadata(
+                num_children = seq_group.num_children,
+                num_finished_children= seq_group.num_finished_children,
                 request_id=seq_group.request_id,
                 is_prompt=is_prompt,
                 seq_data=seq_data,
@@ -1027,8 +1030,40 @@ class Scheduler:
         self.block_manager.free(seq)
 
     def free_finished_seq_groups(self) -> None:
-        self.running = deque(seq_group for seq_group in self.running
-                             if not seq_group.is_finished())
+        save = 0
+        if save:
+            # Rachel Begin
+            new_running = deque()  # 先创建一个双端队列
+            import numpy as np
+            for seq_group in self.running:
+                if seq_group.is_finished():
+                    print("Finished! ")
+                    # Final logprobs
+                    sum_logprobs = [np.sum(seq_group.seqs_dict[key].data.output_token_logprobs)/len(seq_group.seqs_dict[key].data.output_token_logprobs) for key in seq_group.seqs_dict]
+                    sum_probs = np.exp(sum_logprobs)
+                    pd.DataFrame(sum_logprobs).to_csv("/workspace/temp/sum_logprobs_consis.csv", mode='a', index=False, header=None)
+                    pd.DataFrame(sum_probs).to_csv("/workspace/temp/sum_probs_consis.csv", mode='a', index=False, header=None)
+            #        ## logprobs
+            #        #data_logprobs = [seq_group.seqs_dict[answer].data.output_token_logprobs for answer in seq_group.seqs_dict]  # 对字典进行for索引，可以得到所有键
+            #        #dataframe_logprobs = pd.DataFrame(data_logprobs)
+            #        #dataframe_logprobs.to_csv("/workspace/temp/logprobs.csv", mode='a', index=False)
+            #        ## length
+            #        #maxlen = len(dataframe_logprobs.columns)
+            #        #pd.DataFrame([maxlen]).to_csv("/workspace/temp/maxlen.csv", mode='a', index=False, header=False)
+            #        ## token
+            #        #data_decoded_token = [[list(j.values())[0].decoded_token for j in seq_group.seqs_dict[i].output_logprobs][:-2] for i in seq_group.seqs_dict]
+            #        #for i in data_decoded_token:
+            #        #    if i[-1] == '.\n\n':
+            #        #        i[-1] = '.'
+            #        #pd.DataFrame(data_decoded_token).to_csv("/workspace/temp/output_text.csv", mode='a', index=False)  # , escapechar='\\'
+
+                else:
+                    new_running.append(seq_group)
+            self.running = new_running
+            # Rechel End
+        else:
+            self.running = deque(seq_group for seq_group in self.running if not seq_group.is_finished())
+        
 
     def _allocate_and_set_running(self, seq_group: SequenceGroup) -> None:
         self.block_manager.allocate(seq_group)

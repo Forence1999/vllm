@@ -680,6 +680,11 @@ class LLMEngine:
         output_by_sequence_group = create_output_by_sequence_group(
             output, num_seq_groups=len(scheduled_seq_groups))
 
+        #import numpy as np
+        #if np.array([i.is_finished() for i in self.scheduler.running]).all():
+        #    print("----Before: all finish----")
+        #else:
+        #    print("----Before: not finish, ", [i.is_finished() for i in self.scheduler.running])
         # Update the scheduled sequence groups with the model outputs.
         for scheduled_seq_group, outputs, seq_group_meta in zip(
                 scheduled_seq_groups, output_by_sequence_group,
@@ -696,6 +701,12 @@ class LLMEngine:
                 self.output_processor.process_outputs(seq_group, outputs)
 
         # Free the finished sequence groups.
+        #if np.array([i.is_finished() for i in self.scheduler.running]).all():
+        #    print("----After: all finish----")
+        #    self.scheduler.free_finished_seq_groups()
+        #else:
+        #    print("----After: not finish, ", [i.is_finished() for i in self.scheduler.running])
+        #    self.scheduler.free_finished_seq_groups()
         self.scheduler.free_finished_seq_groups()
 
         # Create the outputs.
@@ -703,6 +714,8 @@ class LLMEngine:
                                     EmbeddingRequestOutput]] = []
         for scheduled_seq_group in scheduled_seq_groups:
             seq_group = scheduled_seq_group.seq_group
+            if len(seq_group.seqs_dict) == 0:
+                raise ValueError("seqs_dict = 0")
             seq_group.maybe_set_first_token_time(now)
             request_output = RequestOutputFactory.create(seq_group)
             request_outputs.append(request_output)

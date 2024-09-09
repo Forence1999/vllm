@@ -135,6 +135,7 @@ class SequenceData:
         self._stage: SequenceStage = SequenceStage.PREFILL
         self.prompt_token_logprobs = []  # FORENCE
         self.output_token_logprobs = []  # FORENCE
+        self.ancestor = None  # RACHEL
 
     def append_token_id(self, token_id: int, logprob: float) -> None:
         self.output_token_ids.append(token_id)
@@ -382,26 +383,52 @@ class Sequence:
         eos_token_id: Optional[int] = None,
         forence_params=None,
     ) -> float:
+        import math
 
         output_token_logprobs = self.data.output_token_logprobs
-        # print(len(output_token_logprobs), end="-")
         mode = forence_params["mode"]
         if mode == "back":
+            # back_length = forence_params["back_length"]
+            # probs = output_token_logprobs[-back_length:]
+            # score = sum(probs) / len(probs)
+            # score = np.exp(score)
             back_length = forence_params["back_length"]
-            probs = output_token_logprobs[-back_length:]
+            logprobs = output_token_logprobs[-back_length:]
+            probs = [math.exp(x) for x in logprobs]
             score = sum(probs) / len(probs)
+
         elif mode == "discount":
             from functools import reduce
 
+            # import numpy as np
             alpha = forence_params["discount_factor"]
-            score = reduce(
-                lambda ema, x: alpha * x + (1 - alpha) * ema, output_token_logprobs
-            )
-        elif mode == "percent":
-            import numpy as np
 
+            # score = reduce(
+            #    lambda ema, x: (1-alpha)*ema + alpha*x, output_token_logprobs   # ema 累计值， x 新值
+            # ) / (1 - pow(1 - alpha, len(output_token_logprobs)))
+
+            # 08-18, alpha <-> 1 - alpha
+            # score = reduce(
+            #    lambda ema, x: alpha*ema + (1-alpha)*x, output_token_logprobs
+            # ) / (1 - pow(alpha, len(output_token_logprobs)))
+
+            # score = np.exp(score)
+
+            # 算术平均
+            output_token_probs = [math.exp(x) for x in output_token_logprobs]
+            score = reduce(lambda ema, x: alpha * ema + x, output_token_probs) / reduce(
+                lambda ema, x: alpha * ema + x, [1] * len(output_token_probs)
+            )
+
+        elif mode == "percent":
+            # import numpy as np
+            # min_percent = forence_params["min_percent"]
+            # score = np.quantile(a=output_token_logprobs, q=min_percent, method="lower")
+            # score = np.exp(score)
             min_percent = forence_params["min_percent"]
-            score = np.quantile(a=output_token_logprobs, q=min_percent, method="lower")
+            output_token_probs = [math.exp(x) for x in output_token_logprobs]
+            score = np.quantile(a=output_token_probs, q=min_percent, method="lower")
+
         else:
             raise ValueError(f"Unknown forence mode: {mode}")
 
@@ -489,12 +516,17 @@ class SequenceGroup:
         self.embeddings = embeddings
         self.pooling_params = pooling_params
         self.encoder_seq = encoder_seq
+        self.num_children = [0] * sampling_params.best_of
+        self.num_finished_children = [0] * sampling_params.best_of
 
     @property
     def prompt(self) -> Optional[str]:
         # All sequences in the group should have the same prompt.
         # We use the prompt of an arbitrary sequence.
-        return next(iter(self.seqs_dict.values())).prompt
+        if self.seqs_dict:
+            return next(iter(self.seqs_dict.values())).prompt
+        else:
+            raise ValueError("seqs_dict is empty, cannot retrieve prompt")
 
     @property
     def prompt_token_ids(self) -> List[int]:
@@ -684,6 +716,8 @@ class SequenceGroupMetadata:
         sampling_params: SamplingParams,
         block_tables: Dict[int, List[int]],
         do_sample: bool = True,
+        num_children: Optional[List[int]] = None,  # 如果不传递参数，默认为None
+        num_finished_children: Optional[List[int]] = None,
         pooling_params: Optional[PoolingParams] = None,
         token_chunk_size: Optional[int] = None,
         lora_request: Optional[LoRARequest] = None,
@@ -707,6 +741,8 @@ class SequenceGroupMetadata:
         self.cross_block_table = cross_block_table
         self._token_chunk_size = token_chunk_size
         self.do_sample = do_sample
+        self.num_children = num_children
+        self.num_finished_children = num_finished_children
 
         # The number of speculative tokens adopted in this request.
         # None means specuative decoding is not used.
