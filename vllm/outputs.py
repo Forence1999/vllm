@@ -3,8 +3,13 @@ from dataclasses import dataclass
 from typing import List, Optional, Union
 
 from vllm.lora.request import LoRARequest
-from vllm.sequence import (PromptLogprobs, RequestMetrics, SampleLogprobs,
-                           SequenceGroup, SequenceStatus)
+from vllm.sequence import (
+    PromptLogprobs,
+    RequestMetrics,
+    SampleLogprobs,
+    SequenceGroup,
+    SequenceStatus,
+)
 
 
 @dataclass
@@ -39,13 +44,15 @@ class CompletionOutput:
         return self.finish_reason is not None
 
     def __repr__(self) -> str:
-        return (f"CompletionOutput(index={self.index}, "
-                f"text={self.text!r}, "
-                f"token_ids={self.token_ids}, "
-                f"cumulative_logprob={self.cumulative_logprob}, "
-                f"logprobs={self.logprobs}, "
-                f"finish_reason={self.finish_reason}, "
-                f"stop_reason={self.stop_reason})")
+        return (
+            f"CompletionOutput(index={self.index}, "
+            f"text={self.text!r}, "
+            f"token_ids={self.token_ids}, "
+            f"cumulative_logprob={self.cumulative_logprob}, "
+            f"logprobs={self.logprobs}, "
+            f"finish_reason={self.finish_reason}, "
+            f"stop_reason={self.stop_reason})"
+        )
 
 
 @dataclass
@@ -60,8 +67,7 @@ class EmbeddingOutput:
     embedding: List[float]
 
     def __repr__(self) -> str:
-        return (f"EmbeddingOutput("
-                f"embedding={len(self.embedding)})")
+        return f"EmbeddingOutput(" f"embedding={len(self.embedding)})"
 
 
 class RequestOutput:
@@ -101,17 +107,19 @@ class RequestOutput:
     @classmethod
     def from_seq_group(cls, seq_group: SequenceGroup) -> "RequestOutput":
         if seq_group.sampling_params is None:
-            raise ValueError(
-                "Sampling parameters are missing for a CompletionRequest.")
+            raise ValueError("Sampling parameters are missing for a CompletionRequest.")
         seqs = seq_group.get_seqs()
         if len(seqs) == 1:
             top_n_seqs = seqs
         else:
             # Get the top-n sequences.
             n = seq_group.sampling_params.n
+            # Rachel
+            # n = 32
             if seq_group.sampling_params.use_beam_search:
                 sorting_key = lambda seq: seq.get_beam_search_score(
-                    seq_group.sampling_params.length_penalty)
+                    seq_group.sampling_params.length_penalty
+                )
             else:
                 sorting_key = lambda seq: seq.get_cumulative_logprob()
             sorted_seqs = sorted(seqs, key=sorting_key, reverse=True)
@@ -124,13 +132,16 @@ class RequestOutput:
         include_logprobs = seq_group.sampling_params.logprobs is not None
         text_buffer_length = seq_group.sampling_params.output_text_buffer_length
         outputs = [
-            CompletionOutput(seqs.index(seq),
-                             seq.get_output_text_to_return(text_buffer_length),
-                             seq.get_output_token_ids(),
-                             seq.get_cumulative_logprob(),
-                             seq.output_logprobs if include_logprobs else None,
-                             SequenceStatus.get_finished_reason(seq.status),
-                             seq.stop_reason) for seq in top_n_seqs
+            CompletionOutput(
+                seqs.index(seq),
+                seq.get_output_text_to_return(text_buffer_length),
+                seq.get_output_token_ids(),
+                seq.get_cumulative_logprob(),
+                seq.output_logprobs if include_logprobs else None,
+                SequenceStatus.get_finished_reason(seq.status),
+                seq.stop_reason,
+            )
+            for seq in top_n_seqs
         ]
 
         # Every sequence in the sequence group should have the same prompt.
@@ -140,24 +151,28 @@ class RequestOutput:
         finished = seq_group.is_finished()
         finished_time = time.time() if finished else None
         seq_group.set_finished_time(finished_time)
-        return cls(seq_group.request_id,
-                   prompt,
-                   prompt_token_ids,
-                   prompt_logprobs,
-                   outputs,
-                   finished,
-                   seq_group.metrics,
-                   lora_request=seq_group.lora_request)
+        return cls(
+            seq_group.request_id,
+            prompt,
+            prompt_token_ids,
+            prompt_logprobs,
+            outputs,
+            finished,
+            seq_group.metrics,
+            lora_request=seq_group.lora_request,
+        )
 
     def __repr__(self) -> str:
-        return (f"RequestOutput(request_id={self.request_id}, "
-                f"prompt={self.prompt!r}, "
-                f"prompt_token_ids={self.prompt_token_ids}, "
-                f"prompt_logprobs={self.prompt_logprobs}, "
-                f"outputs={self.outputs}, "
-                f"finished={self.finished}, "
-                f"metrics={self.metrics}, "
-                f"lora_request={self.lora_request})")
+        return (
+            f"RequestOutput(request_id={self.request_id}, "
+            f"prompt={self.prompt!r}, "
+            f"prompt_token_ids={self.prompt_token_ids}, "
+            f"prompt_logprobs={self.prompt_logprobs}, "
+            f"outputs={self.outputs}, "
+            f"finished={self.finished}, "
+            f"metrics={self.metrics}, "
+            f"lora_request={self.lora_request})"
+        )
 
 
 class EmbeddingRequestOutput:
@@ -171,19 +186,24 @@ class EmbeddingRequestOutput:
         finished (bool): A flag indicating whether the embedding is completed.
     """
 
-    def __init__(self, request_id: str, outputs: "EmbeddingOutput",
-                 prompt_token_ids: List[int], finished: bool):
+    def __init__(
+        self,
+        request_id: str,
+        outputs: "EmbeddingOutput",
+        prompt_token_ids: List[int],
+        finished: bool,
+    ):
         self.request_id = request_id
         self.prompt_token_ids = prompt_token_ids
         self.finished = finished
         self.outputs = outputs
 
     @classmethod
-    def from_seq_group(cls,
-                       seq_group: 'SequenceGroup') -> "EmbeddingRequestOutput":
+    def from_seq_group(cls, seq_group: "SequenceGroup") -> "EmbeddingRequestOutput":
         if seq_group.embeddings is None:
             raise ValueError(
-                "Embeddings are missing in seq_group for EmbeddingRequest.")
+                "Embeddings are missing in seq_group for EmbeddingRequest."
+            )
         output = EmbeddingOutput(seq_group.embeddings)
         prompt_token_ids = seq_group.prompt_token_ids
         finished = seq_group.is_finished()
@@ -200,10 +220,12 @@ class EmbeddingRequestOutput:
         Returns:
             str: A string representation of the EmbeddingRequestOutput instance.
         """
-        return (f"EmbeddingRequestOutput(request_id='{self.request_id}', "
-                f"outputs={repr(self.outputs)}, "
-                f"prompt_token_ids={self.prompt_token_ids}, "
-                f"finished={self.finished})")
+        return (
+            f"EmbeddingRequestOutput(request_id='{self.request_id}', "
+            f"outputs={repr(self.outputs)}, "
+            f"prompt_token_ids={self.prompt_token_ids}, "
+            f"finished={self.finished})"
+        )
 
 
 class RequestOutputFactory:
@@ -211,8 +233,7 @@ class RequestOutputFactory:
     @staticmethod
     def create(seq_group):
         # Determine the type based on a condition, for example:
-        if hasattr(seq_group,
-                   'embeddings') and seq_group.embeddings is not None:
+        if hasattr(seq_group, "embeddings") and seq_group.embeddings is not None:
             return EmbeddingRequestOutput.from_seq_group(seq_group)
         else:
             return RequestOutput.from_seq_group(seq_group)

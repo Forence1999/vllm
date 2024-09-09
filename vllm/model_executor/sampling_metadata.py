@@ -46,6 +46,8 @@ class SequenceGroupToSample:
     prompt_logprob_indices: List[int]
     # Sample token indices from logits. Empty if sampling is not required.
     sample_indices: List[int]
+    num_children: Optional[List[int]]
+    num_finished_children: Optional[List[int]]
 
     @property
     def do_sample(self):
@@ -281,7 +283,11 @@ def _prepare_seq_groups(
                 generator=generator,
                 is_prompt=is_prompt,
                 prompt_logprob_indices=list(prompt_logprob_indices),
-                sample_indices=list(sample_indices)))
+                sample_indices=list(sample_indices),
+                num_children = seq_group_metadata.num_children,
+                num_finished_children= seq_group_metadata.num_finished_children
+            )
+        )
     return (seq_groups, selected_token_indices, categorized_sample_indices,
             num_prompts)
 
