@@ -90,22 +90,25 @@ class Sampler(nn.Module):
 
         # Apply temperature scaling.
         # Use in-place division to avoid creating a new tensor.
-        my_temp = torch.full(sampling_tensors.temperatures.unsqueeze_(dim=1).shape, 0.5).to(sampling_tensors.temperatures.device)
-        logits.div_(my_temp)
-        #logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
+        # t = 1
+        # my_temp = torch.full(
+        #    sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
+        # ).to(sampling_tensors.temperatures.device)
+        # logits.div_(my_temp)
+        logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
 
         if do_top_p_top_k:
             ## topk
-            #my_top_ks = torch.full(sampling_tensors.top_ks.shape, 10).to(sampling_tensors.top_ks.device)
-            #logits = _apply_top_k_top_p(
+            # my_top_ks = torch.full(sampling_tensors.top_ks.shape, 10).to(sampling_tensors.top_ks.device)
+            # logits = _apply_top_k_top_p(
             #    logits, sampling_tensors.top_ps,my_top_ks
-            #)
+            # )
 
             ## top-p
-            #my_top_ps = torch.full(sampling_tensors.top_ps.shape, 0.5).to(sampling_tensors.top_ps.device)
-            #logits = _apply_top_k_top_p(
+            # my_top_ps = torch.full(sampling_tensors.top_ps.shape, 0.5).to(sampling_tensors.top_ps.device)
+            # logits = _apply_top_k_top_p(
             #    logits, my_top_ps,sampling_tensors.top_ks
-            #)
+            # )
 
             # original
             logits = _apply_top_k_top_p(
@@ -435,6 +438,7 @@ def _beam_search_sample(
             num_candi_per_seq = int(sampling_params.forence_params["num_candi_per_seq"])
         else:
             num_candi_per_seq = None
+        num_candi_per_seq = 1
         if num_candi_per_seq is None:  # the original version
             if is_prompt:
                 # Prompt phase.
@@ -469,17 +473,19 @@ def _beam_search_sample(
                 _, next_token_ids = torch.topk(seq_group_logprobs[0], beam_width)
                 next_token_ids = next_token_ids.tolist()
                 # --------- 预实验 ----------
-                #parent_ids = [0] * 1
+                # parent_ids = [0] * 1
                 ## 取第k个
-                #k = 15
-                #_, next_token_ids = torch.topk(seq_group_logprobs[0], k)
-                #next_token_ids = torch.tensor([next_token_ids[-1]]).tolist()    # 取倒数第一个
+                # k = 15
+                # _, next_token_ids = torch.topk(seq_group_logprobs[0], k)
+                # next_token_ids = torch.tensor([next_token_ids[-1]]).tolist()    # 取倒数第一个
                 for i in range(beam_width):
                     seq_group.num_children[i] += 1
             else:
-                rachel_method = "topk" # "topk" "sample_k" "greedy_diverge"
+                rachel_method = "topk"  # "topk" "sample_k" "greedy_diverge"
                 if rachel_method == "topk":
-                    _, topk_ids = torch.topk(seq_group_logprobs, num_candi_per_seq, dim=-1)
+                    _, topk_ids = torch.topk(
+                        seq_group_logprobs, num_candi_per_seq, dim=-1
+                    )
                     next_token_ids = topk_ids.flatten().tolist()
                     parent_ids = [
                         i
@@ -487,21 +493,24 @@ def _beam_search_sample(
                         for _ in range(num_candi_per_seq)
                     ]
                     ## -------------------------- 检查和sample的区别 ----------------------------
-                    #sample_ids = torch.multinomial(torch.exp(seq_group_logprobs), num_candi_per_seq, \
+                    # sample_ids = torch.multinomial(torch.exp(seq_group_logprobs), num_candi_per_seq, \
                     #                                replacement=False)
-                    #next_token_sample_ids = sample_ids.flatten().tolist()
-                    #parent_sample_ids = [
+                    # next_token_sample_ids = sample_ids.flatten().tolist()
+                    # parent_sample_ids = [
                     #    i
                     #    for i in range(seq_group_logprobs.size(0))
                     #    for _ in range(num_candi_per_seq)
-                    #]
-                    #print("--------------VS--------------")
-                    #print("sample: ", next_token_sample_ids, parent_sample_ids)
-                    #print("topk: ", next_token_ids, parent_ids)
+                    # ]
+                    # print("--------------VS--------------")
+                    # print("sample: ", next_token_sample_ids, parent_sample_ids)
+                    # print("topk: ", next_token_ids, parent_ids)
                     ## ------------------------------------------------------------------------
                 elif rachel_method == "sample_k":
-                    sample_ids = torch.multinomial(torch.exp(seq_group_logprobs), num_candi_per_seq, \
-                                                    replacement=False)
+                    sample_ids = torch.multinomial(
+                        torch.exp(seq_group_logprobs),
+                        num_candi_per_seq,
+                        replacement=False,
+                    )
                     next_token_ids = sample_ids.flatten().tolist()
                     parent_ids = [
                         i
@@ -509,17 +518,17 @@ def _beam_search_sample(
                         for _ in range(num_candi_per_seq)
                     ]  # 第一个for是外层循环
                     ## -------------------------- 检查和topk的区别 ----------------------------
-                    #_, topk_ids = torch.topk(seq_group_logprobs, num_candi_per_seq, dim=-1)
-                    #next_token_topk_ids = topk_ids.flatten().tolist()
-                    #parent_topk_ids = [
+                    # _, topk_ids = torch.topk(seq_group_logprobs, num_candi_per_seq, dim=-1)
+                    # next_token_topk_ids = topk_ids.flatten().tolist()
+                    # parent_topk_ids = [
                     #    i
                     #    for i in range(seq_group_logprobs.size(0))
                     #    for _ in range(num_candi_per_seq)
-                    #]
-                    #print("---------------VS--------------")
-                    #print("sample: ", next_token_ids, parent_ids)
-                    #print("topk: ", next_token_topk_ids, parent_topk_ids)
-                    #if len(next_token_ids) < 8:
+                    # ]
+                    # print("---------------VS--------------")
+                    # print("sample: ", next_token_ids, parent_ids)
+                    # print("topk: ", next_token_topk_ids, parent_topk_ids)
+                    # if len(next_token_ids) < 8:
                     #    print("**************************")
                     ## ------------------------------------------------------------------------
                 elif rachel_method == "greedy_diverge":
@@ -528,24 +537,26 @@ def _beam_search_sample(
                     beams = 32
                     current_beams = seq_group_logprobs.shape[0]
                     if current_beams >= beams:
-                        _, top1_ids = torch.topk(torch.exp(seq_group_logprobs), 1, dim=-1)
+                        _, top1_ids = torch.topk(
+                            torch.exp(seq_group_logprobs), 1, dim=-1
+                        )
                         next_token_ids = top1_ids.flatten().tolist()
                         parent_ids = [i for i in range(current_beams)]
                     else:
                         # ---------- 0824 delta3 ---------------------
-                        #top3_logprobs, top3_ids = torch.topk(seq_group_logprobs, 3, dim=-1)
-                        #top3_probs = torch.exp(top3_logprobs)
+                        # top3_logprobs, top3_ids = torch.topk(seq_group_logprobs, 3, dim=-1)
+                        # top3_probs = torch.exp(top3_logprobs)
                         ## 最多分出去三支
-                        #parents_delta = torch.stack((top3_probs[:,0] - top3_probs[:,1], top3_probs[:,1] - top3_probs[:,2])).T
-                        #next_token_ids = []
-                        #parent_ids = []
+                        # parents_delta = torch.stack((top3_probs[:,0] - top3_probs[:,1], top3_probs[:,1] - top3_probs[:,2])).T
+                        # next_token_ids = []
+                        # parent_ids = []
                         ## index: which ancestor this seq originate from
-                        #if seq_group.num_children == None:
+                        # if seq_group.num_children == None:
                         #    print("seq_group.num_children is None")
-                        #seq_ancestor = [seq_group.seq_data[k].ancestor for k in seq_group.seq_data.keys()]
-                        #if len(seq_ancestor) != current_beams:
+                        # seq_ancestor = [seq_group.seq_data[k].ancestor for k in seq_group.seq_data.keys()]
+                        # if len(seq_ancestor) != current_beams:
                         #    print("index cannot match the seq_group_logprobs")
-                        #for i, (delta, ids) in enumerate(zip(parents_delta, top3_ids)):
+                        # for i, (delta, ids) in enumerate(zip(parents_delta, top3_ids)):
                         #    # 每个delta,ids 是一个parent序列产生的
                         #    if delta[0] >= delta_threshold or seq_group.num_children[seq_ancestor[i]] >= 4:
                         #        # 只要top1
@@ -565,61 +576,71 @@ def _beam_search_sample(
                         #        current_beams += 1
 
                         # ----------0825 delta2 ----------------
-                        top2_logprobs, top2_ids = torch.topk(seq_group_logprobs, 2, dim=-1)
+                        top2_logprobs, top2_ids = torch.topk(
+                            seq_group_logprobs, 2, dim=-1
+                        )
                         top2_probs = torch.exp(top2_logprobs)
-                        parents_delta = top2_probs[:,0] - top2_probs[:,1]
+                        parents_delta = top2_probs[:, 0] - top2_probs[:, 1]
                         next_token_ids = []
                         parent_ids = []
                         # index: which ancestor this seq originate from
                         if seq_group.num_children == None:
                             print("seq_group.num_children is None")
-                        seq_ancestor = [seq_group.seq_data[k].ancestor for k in seq_group.seq_data.keys()]
+                        seq_ancestor = [
+                            seq_group.seq_data[k].ancestor
+                            for k in seq_group.seq_data.keys()
+                        ]
                         if len(seq_ancestor) != current_beams:
                             print("index cannot match the seq_group_logprobs")
                         for i, (delta, ids) in enumerate(zip(parents_delta, top2_ids)):
                             # 每个delta,ids 是一个parent序列产生的
-                            if delta < delta_threshold and seq_group.num_children[seq_ancestor[i]] < 4:
+                            if (
+                                delta < delta_threshold
+                                and seq_group.num_children[seq_ancestor[i]] < 4
+                            ):
                                 # expand one child
                                 next_token_ids.extend(ids.tolist())
                                 parent_ids.extend([i for _ in range(2)])
                                 seq_group.num_children[seq_ancestor[i]] += 1
-                                current_beams += 1   
+                                current_beams += 1
                             else:
                                 # 只要top1
                                 next_token_ids.extend([ids[0].tolist()])
-                                parent_ids.extend([i]) 
+                                parent_ids.extend([i])
 
-                        # ----------- 0825 abs,top2 ------------------ 
-                        #top2_logprobs, top2_ids = torch.topk(seq_group_logprobs, 2, dim=-1)
-                        #top2_probs = torch.exp(top2_logprobs)
-                        #next_token_ids = []
-                        #parent_ids = []
-                        #if seq_group.num_children == None:
+                        # ----------- 0825 abs,top2 ------------------
+                        # top2_logprobs, top2_ids = torch.topk(seq_group_logprobs, 2, dim=-1)
+                        # top2_probs = torch.exp(top2_logprobs)
+                        # next_token_ids = []
+                        # parent_ids = []
+                        # if seq_group.num_children == None:
                         #    print("seq_group.num_children is None")
-                        #seq_ancestor = [seq_group.seq_data[k].ancestor for k in seq_group.seq_data.keys()]
-                        #if len(seq_ancestor) != current_beams:
+                        # seq_ancestor = [seq_group.seq_data[k].ancestor for k in seq_group.seq_data.keys()]
+                        # if len(seq_ancestor) != current_beams:
                         #    print("index cannot match the seq_group_logprobs")
-                        #for i, (probs, ids) in enumerate(zip(top2_probs, top2_ids)):
+                        # for i, (probs, ids) in enumerate(zip(top2_probs, top2_ids)):
                         #    # 每个delta,ids 是一个parent序列产生的
                         #    if probs[0] < delta_threshold and seq_group.num_children[seq_ancestor[i]] < 4:
                         #        # expand one child
                         #        next_token_ids.extend(ids.tolist())
                         #        parent_ids.extend([i for _ in range(2)])
                         #        seq_group.num_children[seq_ancestor[i]] += 1
-                        #        current_beams += 1   
+                        #        current_beams += 1
                         #    else:
                         #        # 只要top1
                         #        next_token_ids.extend([ids[0].tolist()])
-                        #        parent_ids.extend([i]) 
+                        #        parent_ids.extend([i])
                 else:
-                    raise ValueError("rachel_method must be in 'greedy_diverge', 'topk', 'sample_k'.")
+                    raise ValueError(
+                        "rachel_method must be in 'greedy_diverge', 'topk', 'sample_k'."
+                    )
         results.append((next_token_ids, parent_ids))
         sample_idx += num_parent_seqs
     assert sample_idx == logprobs.size(0)
-    #for i in range(len(results)):
+    # for i in range(len(results)):
     #    print("{}: ".format(i), results[i][1])
     #    print("seq_group.num_children", selected_seq_groups[i].num_children)
-    
+
     return results
 
 
@@ -1259,13 +1280,21 @@ def _build_sampler_output(
     """
 
     sampler_output = []
-    for seq_group, sample_result, group_prompt_logprobs, group_sample_logprobs in zip(sampling_metadata.seq_groups, sample_results, prompt_logprobs, sample_logprobs):
+    for seq_group, sample_result, group_prompt_logprobs, group_sample_logprobs in zip(
+        sampling_metadata.seq_groups, sample_results, prompt_logprobs, sample_logprobs
+    ):
         seq_ids = seq_group.seq_ids
         next_token_ids, parent_ids = sample_result
         seq_outputs = []
-        for parent_id, next_token_id, logprobs in zip(parent_ids, next_token_ids, group_sample_logprobs):
-            seq_outputs.append(SequenceOutput(seq_ids[parent_id], next_token_id, logprobs))
-        sampler_output.append(CompletionSequenceGroupOutput(seq_outputs, group_prompt_logprobs))
+        for parent_id, next_token_id, logprobs in zip(
+            parent_ids, next_token_ids, group_sample_logprobs
+        ):
+            seq_outputs.append(
+                SequenceOutput(seq_ids[parent_id], next_token_id, logprobs)
+            )
+        sampler_output.append(
+            CompletionSequenceGroupOutput(seq_outputs, group_prompt_logprobs)
+        )
 
     # If not specified, store None values in SamplerOutput.
     if on_device_tensors is not None:
