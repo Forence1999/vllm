@@ -90,12 +90,12 @@ class Sampler(nn.Module):
 
         # Apply temperature scaling.
         # Use in-place division to avoid creating a new tensor.
-        # t = 1
-        # my_temp = torch.full(
-        #    sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
-        # ).to(sampling_tensors.temperatures.device)
-        # logits.div_(my_temp)
-        logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
+        t = 0.5
+        my_temp = torch.full(
+            sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
+            ).to(sampling_tensors.temperatures.device)
+        logits.div_(my_temp)
+        #logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
 
         if do_top_p_top_k:
             ## topk
@@ -481,7 +481,7 @@ def _beam_search_sample(
                 for i in range(beam_width):
                     seq_group.num_children[i] += 1
             else:
-                rachel_method = "topk"  # "topk" "sample_k" "greedy_diverge"
+                rachel_method = "sample_k"  # "topk" "sample_k" "greedy_diverge"
                 if rachel_method == "topk":
                     _, topk_ids = torch.topk(
                         seq_group_logprobs, num_candi_per_seq, dim=-1
