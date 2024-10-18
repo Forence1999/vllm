@@ -90,12 +90,16 @@ class Sampler(nn.Module):
 
         # Apply temperature scaling.
         # Use in-place division to avoid creating a new tensor.
-        t = 0.5
-        my_temp = torch.full(
-            sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
-            ).to(sampling_tensors.temperatures.device)
-        logits.div_(my_temp)
-        #logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
+
+        # Beam_Consis
+        # t = 0.5
+        # my_temp = torch.full(
+        #    sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
+        #    ).to(sampling_tensors.temperatures.device)
+        # logits.div_(my_temp)
+
+        # Beam Search / Self-Consistency
+        logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
 
         if do_top_p_top_k:
             ## topk
