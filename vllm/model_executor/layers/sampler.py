@@ -92,14 +92,14 @@ class Sampler(nn.Module):
         # Use in-place division to avoid creating a new tensor.
 
         # Beam_Consis
-        # t = 0.5
-        # my_temp = torch.full(
-        #    sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
-        #    ).to(sampling_tensors.temperatures.device)
-        # logits.div_(my_temp)
+        t = 0.5
+        my_temp = torch.full(
+            sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
+        ).to(sampling_tensors.temperatures.device)
+        logits.div_(my_temp)
 
-        # Beam Search / Self-Consistency
-        logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
+        # Others
+        # logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
 
         if do_top_p_top_k:
             ## topk
@@ -434,14 +434,14 @@ def _beam_search_sample(
         seq_group_logprobs = logprobs[sample_idx : sample_idx + num_parent_seqs]
 
         # FORENCE
-        if (
-            hasattr(sampling_params, "forence_params")
-            and isinstance(sampling_params.forence_params, dict)
-            and sampling_params.forence_params.get("num_candi_per_seq", None)
-        ):
-            num_candi_per_seq = int(sampling_params.forence_params["num_candi_per_seq"])
-        else:
-            num_candi_per_seq = None
+        # if (
+        #    hasattr(sampling_params, "forence_params")
+        #    and isinstance(sampling_params.forence_params, dict)
+        #    and sampling_params.forence_params.get("num_candi_per_seq", None)
+        # ):
+        #    num_candi_per_seq = int(sampling_params.forence_params["num_candi_per_seq"])
+        # else:
+        #    num_candi_per_seq = None
         num_candi_per_seq = 1
         if num_candi_per_seq is None:  # the original version
             if is_prompt:
@@ -641,10 +641,6 @@ def _beam_search_sample(
         results.append((next_token_ids, parent_ids))
         sample_idx += num_parent_seqs
     assert sample_idx == logprobs.size(0)
-    # for i in range(len(results)):
-    #    print("{}: ".format(i), results[i][1])
-    #    print("seq_group.num_children", selected_seq_groups[i].num_children)
-
     return results
 
 
