@@ -92,14 +92,14 @@ class Sampler(nn.Module):
         # Use in-place division to avoid creating a new tensor.
 
         # Beam_Consis
-        t = 0.5
-        my_temp = torch.full(
-            sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
-        ).to(sampling_tensors.temperatures.device)
-        logits.div_(my_temp)
+        #t = 0.5
+        #my_temp = torch.full(
+        #    sampling_tensors.temperatures.unsqueeze_(dim=1).shape, t
+        #).to(sampling_tensors.temperatures.device)
+        #logits.div_(my_temp)
 
         # Others
-        # logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
+        logits.div_(sampling_tensors.temperatures.unsqueeze_(dim=1))
 
         if do_top_p_top_k:
             ## topk
